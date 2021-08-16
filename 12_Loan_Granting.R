@@ -21,10 +21,10 @@ a = sum(df_loan$loan_granted == 1 & df_loan$loan_repaid == 1)
 b = sum(df_loan$loan_granted == 1 & df_loan$loan_repaid == 0)
 current_profit_avg = (a-b)/sum(df_loan$loan_granted ==1)
 
-# First, delete the non-granted data, since they are unlabelled.
+# # Some data transformation.
 df_clean = df_borrower%>%
   inner_join(df_loan, by = 'loan_id') %>%
-  filter ( !is.na(loan_repaid )) %>%
+  filter ( !is.na(loan_repaid )) %>% # Delete the non-granted data
   mutate ( across(c(fully_repaid_previous_loans,currently_repaying_other_loans),
                   ~ifelse(is.na(.), 'Not applicable', .))) %>%
   mutate (wealth = saving_amount + checking_amount) %>%
@@ -74,7 +74,8 @@ rf = randomForest(loan_repaid ~ ., data = df_train,
                  ntree = 50, mtry = 3)
 
 ## Now we calculate the profitability of our model.
-## We write a function
+## We write a function to realize this.
+## We need to find a best threshold for loan granting based on our model.
 model_profitability = function(threshold, trained_model,test_data){
 pred = predict(trained_model, newdata = test_data, type = 'vote') %>%
   as.data.frame(.) %>%
@@ -88,7 +89,7 @@ a = sum(pred$grant == 1 & pred$loan_repaid == 1)
 b = sum(pred$grant == 1 & pred$loan_repaid == 0)
  a-b}
 
-model_profitability(0.3, rf, df_test)
+
 max_profit_avg = map(seq(0.1,0.9, by = 0.05), ~model_profitability(., rf,df_test))%>%
   unlist(.)%>%max(.)/nrow(df_test)
 # This result in an avg profit of 0.53, nearly double the profit of the current model, which is 0.28
