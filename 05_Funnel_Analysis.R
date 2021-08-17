@@ -4,6 +4,7 @@ library(lubridate)
 library(gamlr)
 library(randomForest)
 library(rpart)
+library(ROSE)
 
 # Input the data
 
@@ -17,7 +18,6 @@ df_final= read.csv('user_table_funnel.csv')%>%
   mutate (across(c('search','payment','finalize'), ~ifelse(is.na(.), 0, 1))) %>%
   mutate (day = weekdays(as_date(date)))
 
-rm (df_homepage, df_finalize, df_payment, df_search, df_user)
 
 # Question 1 -------------------------------------------------------------------
 df_analyze = df_final %>% group_by (device, sex, day)%>%
@@ -55,19 +55,21 @@ table(df_reg2$device, df_reg2$sex) %>% chisq.test(.)
 table(df_reg2$day, df_reg2$sex) %>% chisq.test(.)
 table(df_reg2$day, df_reg2$device) %>% chisq.test(.)
 
+# Also check target class distribution
+sum(df_reg2$conversion == 1)/nrow(df_reg2)
 ## It seems that there is a problem of imbalanced label.
 # https://stackoverflow.com/questions/8704681/random-forest-with-classes-that-are-very-unbalanced
 # We can use under-sampling to alleviate the problem.
-set.seed(109)
-conversion_1 = df_reg2%>% filter (conversion == 1)
-conversion_0 = df_reg2%>% filter (conversion == 0) %>%
-  slice_sample (n = nrow(conversion_1) * 10)
-new_data = bind_rows(conversion_1, conversion_0) 
-sample <- sample.int(n = nrow(new_data), size = floor(.9*nrow(new_data)), replace = F)
-df_train <- new_data[sample, ]
-df_test  <- new_data[-sample, ]
 
-df_x = df_train%>%dplyr::select (- conversion)
+set.seed(109)
+sample <- sample.int(n = nrow(df_reg2), size = floor(.9*nrow(df_reg2)), replace = F)
+df_train <- df_reg2[sample, ]
+df_test  <- df_reg2[-sample, ]
+
+df_train_under <- ovun.sample(conversion~., data=df_train, method = "under")$data
+
+
+df_x = df_train_under%>%dplyr::select (- conversion)
 x = sparse.model.matrix( ~ ., data=df_x, contrasts.arg = 
                            lapply(df_x[,sapply(df_x, is.factor)],contrasts, contrasts = FALSE))
 
@@ -77,7 +79,7 @@ fit_coef = coef (fit_res, select = 'min')%>%drop(.)%>%.[.>0]
 
 ## Method 3: random forest.
 
-rf = df_train %>% dplyr::mutate(conversion = factor(conversion)) %>%
+rf = df_train_under %>% dplyr::mutate(conversion = factor(conversion)) %>%
   randomForest(conversion ~ ., data = ., ntree = 50, mtry = 3)
 rf_vote = rf[["votes"]][,'1'] # get the vote 
 
